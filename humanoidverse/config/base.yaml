@@ -1,7 +1,7 @@
 # First we define the global structures that will be used by all the configs.
 defaults:
   # - base/fabric
-  - _self_
+  - _self_ # 代表当前这个文件本身（base.yaml）
   - base/hydra
   - base/structure
 

@@ -2,7 +2,8 @@
 
 algo:
   _target_: humanoidverse.agents.ppo.ppo.PPO
-  _recursive_: False
+  _recursive_: False # 只创建 PPO 对象本身，把 policy/value_fn 
+  # 等作为原始配置对象传进去（DictConfig），不自动实例化它们
   config:
     num_learning_epochs: 5
     num_mini_batches: 4
