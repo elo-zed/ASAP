@@ -16,7 +16,11 @@ from loguru import logger
 
 from utils.config_utils import *  # noqa: E402, F403
 
-
+"""
+去寻找 config/ 目录（相对于执行的 python 文件的位置）
+在里面找 base.yaml（注意：不需要写 .yaml 后缀）
+把加载好的配置自动传给你的函数
+"""
 @hydra.main(config_path="config", config_name="base", version_base="1.1")
 def main(config: OmegaConf):
     # import ipdb; ipdb.set_trace()
@@ -121,7 +125,7 @@ def main(config: OmegaConf):
     algo: BaseAlgo = instantiate(device=device, env=env, config=config.algo, log_dir=experiment_save_dir)
     algo.setup()
     # import ipdb;    ipdb.set_trace()
-    if config.checkpoint is not None:
+    if config.checkpoint is not None: # False
         algo.load(config.checkpoint)
 
     # handle saving config
