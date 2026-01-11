@@ -25,6 +25,7 @@ class BaseTask():
 
         # self.simulator = instantiate(config=self.config.simulator, device=device)
         SimulatorClass = get_class(self.config.simulator._target_)
+        # humanoidverse.simulator.isaacsim.isaacsim.IsaacSim'
         self.simulator: BaseSimulator = SimulatorClass(config=self.config, device=device)
         
         self.headless = config.headless

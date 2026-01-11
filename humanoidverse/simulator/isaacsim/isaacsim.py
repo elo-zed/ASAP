@@ -6,27 +6,27 @@ from humanoidverse.utils.torch_utils import to_torch, torch_rand_float
 import numpy as np
 from humanoidverse.simulator.base_simulator.base_simulator import BaseSimulator
 # from humanoidverse.simulator.isaaclab_cfg import IsaacLabCfg
-from omni.isaac.lab.sim import SimulationContext
-from omni.isaac.lab.sim import PhysxCfg, SimulationCfg
-from omni.isaac.lab.scene import InteractiveSceneCfg
-from omni.isaac.lab.scene import InteractiveScene
-from omni.isaac.lab.utils.timer import Timer
+from isaaclab.sim import SimulationContext
+from isaaclab.sim import PhysxCfg, SimulationCfg
+from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.scene import InteractiveScene
+from isaaclab.utils.timer import Timer
 
-from omni.isaac.lab.assets import Articulation
-from omni.isaac.lab.sensors import ContactSensor, RayCaster
-from omni.isaac.lab.actuators import IdealPDActuatorCfg, ImplicitActuatorCfg
-from omni.isaac.lab.sensors import ContactSensorCfg, RayCasterCfg, patterns
-from omni.isaac.lab.assets import ArticulationCfg
-from omni.isaac.lab.terrains import TerrainImporterCfg
-from omni.isaac.lab.terrains.config.rough import ROUGH_TERRAINS_CFG
-from omni.isaac.lab.terrains import TerrainGeneratorCfg
-import omni.isaac.lab.terrains as terrain_gen
+from isaaclab.assets import Articulation
+from isaaclab.sensors import ContactSensor, RayCaster
+from isaaclab.actuators import IdealPDActuatorCfg, ImplicitActuatorCfg
+from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.assets import ArticulationCfg
+from isaaclab.terrains import TerrainImporterCfg
+from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
+from isaaclab.terrains import TerrainGeneratorCfg
+import isaaclab.terrains as terrain_gen
 
-from omni.isaac.lab_assets import H1_CFG
-from omni.isaac.lab.utils.assets import ISAACLAB_NUCLEUS_DIR
-from omni.isaac.lab.envs import ViewerCfg
+from isaaclab_assets import H1_CFG
+from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
+from isaaclab.envs import ViewerCfg
 
-import omni.isaac.lab.sim as sim_utils
+import isaaclab.sim as sim_utils
 
 from humanoidverse.simulator.isaacsim.isaaclab_viewpoint_camera_controller import ViewportCameraController
 import builtins
@@ -36,12 +36,12 @@ from humanoidverse.simulator.isaacsim.isaacsim_articulation_cfg import ARTICULAT
 
 from humanoidverse.simulator.isaacsim.event_cfg import EventCfg
 
-from omni.isaac.lab.managers import EventManager
+from isaaclab.managers import EventManager
 
-from omni.isaac.lab.managers import EventTermCfg as EventTerm
+from isaaclab.managers import EventTermCfg as EventTerm
 
-from omni.isaac.lab.managers import SceneEntityCfg
-import omni.isaac.lab.envs.mdp as mdp
+from isaaclab.managers import SceneEntityCfg
+import isaaclab.envs.mdp as mdp
 from humanoidverse.simulator.isaacsim.events import randomize_body_com
 
 class IsaacSim(BaseSimulator):
@@ -246,26 +246,29 @@ class IsaacSim(BaseSimulator):
         #         stiffness=0,
         #         damping=0,
         #     ),
-        # }
-        asset_root = self.robot_config.asset.asset_root
-        asset_path = self.robot_config.asset.usd_file
+        # }  # 'humanoidverse/data/robots'
+        asset_root = self.robot_config.asset.asset_root # 
+        asset_path = self.robot_config.asset.usd_file # g1/g1_29dof_anneal_23dof.usd  
         # prapare to override the spawn configuration in HumanoidVerse/humanoidverse/simulator/isaacsim_articulation_cfg.py
-        from omni.isaac.lab.utils.assets import ISAACLAB_NUCLEUS_DIR
+        from isaaclab.utils.assets import ISAACLAB_NUCLEUS_DIR
         spawn=sim_utils.UsdFileCfg(
             usd_path=os.path.join(asset_root, asset_path),
             # usd_path=f"{ISAACLAB_NUCLEUS_DIR}/Robots/Unitree/H1/h1.usd",
-            activate_contact_sensors=True,
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                disable_gravity=False,
+            activate_contact_sensors=True, # 激活了机器人足端、背部等部位的碰撞传感器
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(# 刚体物理属性
+                disable_gravity=False,# 开启重力
                 retain_accelerations=False,
-                linear_damping=0.0,
-                angular_damping=0.0,
-                max_linear_velocity=1000.0,
+                linear_damping=0.0, # 线性阻力 0 意味着没有空气阻力
+                angular_damping=0.0, # 旋转阻力
+                max_linear_velocity=1000.0, # 设定了极高的速度上限
                 max_angular_velocity=1000.0,
-                max_depenetration_velocity=1.0,
-            ),
+                max_depenetration_velocity=1.0,#当机器人零件由于计算误差挤入地面或其他物体时，引擎将其“弹开”的最大速度。
+                # 设置为 1.0 是为了防止机器人落地瞬间因为碰撞穿透产生剧烈抖动
+            ),#关节组/多连杆属性
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-                enabled_self_collisions=False, solver_position_iteration_count=4, solver_velocity_iteration_count=0
+                enabled_self_collisions=False, # 禁用自身碰撞
+                solver_position_iteration_count=4, #位置解算迭代次数
+                solver_velocity_iteration_count=0#速度解算迭代次数
             ),
         )
         
@@ -273,11 +276,11 @@ class IsaacSim(BaseSimulator):
         default_joint_angles = copy.deepcopy(self.robot_config.init_state.default_joint_angles)
         # import ipdb; ipdb.set_trace()
         init_state = ArticulationCfg.InitialStateCfg(
-            pos=tuple(self.robot_config.init_state.pos),
-            joint_pos={
+            pos=tuple(self.robot_config.init_state.pos),# 身体重心位置
+            joint_pos={ # 关节姿态
                 joint_name: joint_angle for joint_name, joint_angle in default_joint_angles.items()
             },
-            joint_vel={".*": 0.0},
+            joint_vel={".*": 0.0},# 关节角速度
         )
        
         dof_names_list = copy.deepcopy(self.robot_config.dof_names)
@@ -302,15 +305,17 @@ class IsaacSim(BaseSimulator):
                     kd_list.append(damping_dict[key])
                     print(f"key: {key}, kp: {stiffness_dict[key]}, kd: {damping_dict[key]}")
 
-
+        # P (Proportional, 比例)：当前角度与目标角度差多少，就施加多大的力
+        # D (Derivative, 微分)：当前转得有多快，就施加多大的反向力（用于阻尼，防止震荡）
         # ImplicitActuatorCfg IdealPDActuatorCfg  
-        actuators = {
-            dof_names_list[i]: IdealPDActuatorCfg(
+        actuators = { # 定义机器人关节如何响应 PPO 算法输出的指令的配置类
+            dof_names_list[i]: IdealPDActuatorCfg( # 
                 joint_names_expr=[dof_names_list[i]],
-                effort_limit=dof_effort_limit_list[i],
-                velocity_limit=dof_vel_limit_list[i],
-                stiffness=0,
-                damping=0,
+                effort_limit=dof_effort_limit_list[i],# 限制电机的最大扭矩
+                velocity_limit=dof_vel_limit_list[i],# 限制关节转速
+                stiffness=0,#决定机器人有多“硬”，PD 控制器本身不产生任何力矩
+                damping=0,# 决定机器人有多“稳”，PD 控制器本身不产生任何力矩
+                # PPO Actor 输出的不再是“目标角度”，直接输出扭矩
                 armature=dof_armature_list[i],
                 friction=dof_joint_friction_list[i],
             ) for i in range(len(dof_names_list))
@@ -497,7 +502,10 @@ class IsaacSim(BaseSimulator):
         # call super
         super().set_headless(headless)
         if not self.headless:
-            from omni.isaac.debug_draw import _debug_draw
+            # from omni.isaac.debug_draw import _debug_draw
+            # self.draw = _debug_draw.acquire_debug_draw_interface()
+            from isaacsim.util.debug_draw import _debug_draw
+            # 获取 debug draw 接口（全局单例）
             self.draw = _debug_draw.acquire_debug_draw_interface()
         else:
             self.draw = None
@@ -662,19 +670,29 @@ class IsaacSim(BaseSimulator):
 
         self._rigid_body_pos = self._robot.data.body_pos_w[:, self.body_ids, :]
         self._rigid_body_rot = self._robot.data.body_quat_w[:, self.body_ids][:, :, [1, 2, 3, 0]] # (num_envs, 4) 3 isaacsim use wxyz, we keep xyzw for consistency
+        # 机器人各部位在世界坐标系下的角速度，各刚体绕着 X, Y, Z 轴旋转的快慢
         self._rigid_body_vel = self._robot.data.body_lin_vel_w[:, self.body_ids, :]
+        # 机器人的各个刚体（Bodies，躯干、大腿、小腿）在世界坐标系 (World, 后缀_w) 下的线速度。
+        # (num_envs, num_bodies, 3)
         self._rigid_body_ang_vel = self._robot.data.body_ang_vel_w[:, self.body_ids, :]
 
     def apply_torques_at_dof(self, torques):
         self._robot.set_joint_effort_target(torques, joint_ids=self.dof_ids)
     
     def set_actor_root_state_tensor(self, set_env_ids, root_states):
-        self._robot.write_root_pose_to_sim(root_states[set_env_ids, :7], set_env_ids)
+        # 写入线速度和角速度，6维 (num_envs, 6)
+        self._robot.write_root_pose_to_sim(root_states[set_env_ids, :7], set_env_ids) # 指定要在哪些并行环境中生效
         self._robot.write_root_velocity_to_sim(root_states[set_env_ids, 7:], set_env_ids)
 
     def set_dof_state_tensor(self, set_env_ids, dof_states):
         dof_pos, dof_vel = dof_states[set_env_ids, :, 0], dof_states[set_env_ids, :, 1]
-        self._robot.write_joint_state_to_sim(dof_pos, dof_vel, self.dof_ids, set_env_ids)
+        # 状态写入，是打破物理的
+        self._robot.write_joint_state_to_sim(
+                    dof_pos, # 目标关节位置（弧度）
+                    dof_vel, # 目标关节速度（rad/s）
+                    self.dof_ids, # 要修改哪些关节的索引
+                    set_env_ids # 要在哪些并行环境（Environments）中执行这个操作
+        )
     
     def simulate_at_each_physics_step(self):
         self._sim_step_counter += 1

@@ -111,6 +111,7 @@ class PPO(BaseAlgo):
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=self.critic_learning_rate)
 
     def _setup_storage(self):
+        # 缓冲区：存num_steps_per_env步的轨迹
         self.storage = RolloutStorage(self.env.num_envs, self.num_steps_per_env)
         ## Register obs keys
         for obs_key, obs_dim in self.algo_obs_dim_dict.items():
@@ -166,7 +167,7 @@ class PPO(BaseAlgo):
         }, path)
         
     def learn(self):
-        if self.init_at_random_ep_len:
+        if self.init_at_random_ep_len: # True
             self.env.episode_length_buf = torch.randint_like(self.env.episode_length_buf, high=int(self.env.max_episode_length))
         
         obs_dict = self.env.reset_all()
@@ -186,9 +187,9 @@ class PPO(BaseAlgo):
 
             # Jiawei: Need to return obs_dict to update the obs_dict for the next iteration
             # Otherwise, we will keep using the initial obs_dict for the whole training process
-            obs_dict =self._rollout_step(obs_dict)
+            obs_dict =self._rollout_step(obs_dict) # 采集轨迹
 
-            loss_dict = self._training_step()
+            loss_dict = self._training_step() #  PPO 更新
 
             self.stop_time = time.time()
             self.learn_time = self.stop_time - self.start_time
@@ -213,7 +214,7 @@ class PPO(BaseAlgo):
         self.save(os.path.join(self.log_dir, 'model_{}.pt'.format(self.current_learning_iteration)))
 
     def _actor_rollout_step(self, obs_dict, policy_state_dict):
-        actions = self._actor_act_step(obs_dict)
+        actions = self._actor_act_step(obs_dict) # 用一个模型生成动作, 1x23
         policy_state_dict["actions"] = actions
         
         action_mean = self.actor.action_mean.detach()
@@ -229,17 +230,27 @@ class PPO(BaseAlgo):
         assert len(action_sigma.shape) == 2
 
         return policy_state_dict
-
-    def _rollout_step(self, obs_dict):
+    # 环境交互
+    """
+    for i in range(num_steps_per_env):
+        actions = actor.act(obs)  # 采样动作
+        values = critic.evaluate(obs)  # 估价值
+        obs, rewards, dones, infos = env.step(actions)  # 模拟一步
+        storage.update(...)  # 存数据
+    returns, advantages = _compute_returns(...)  # GAE
+    storage.batch_update('returns', returns)
+    """
+    def _rollout_step(self, obs_dict): # 收集轨迹（rollout）
         with torch.inference_mode():
-            for i in range(self.num_steps_per_env):
+            # 用当前策略在环境模拟 num_steps_per_env 步
+            for i in range(self.num_steps_per_env): # 跑 num_steps_per_env 步
                 # Compute the actions and values
                 # actions = self.actor.act(obs_dict["actor_obs"]).detach()
 
                 policy_state_dict = {}
-                policy_state_dict = self._actor_rollout_step(obs_dict, policy_state_dict)
-                values = self._critic_eval_step(obs_dict).detach()
-                policy_state_dict["values"] = values
+                policy_state_dict = self._actor_rollout_step(obs_dict, policy_state_dict) # 用一个网络生成  选动作
+                values = self._critic_eval_step(obs_dict).detach() # 用一个网络生成
+                policy_state_dict["values"] = values # 估价值
 
                 ## Append states to storage
                 for obs_key in obs_dict.keys():
@@ -249,7 +260,7 @@ class PPO(BaseAlgo):
                     self.storage.update_key(obs_, policy_state_dict[obs_])
                 actions = policy_state_dict["actions"]
                 actor_state = {}
-                actor_state["actions"] = actions
+                actor_state["actions"] = actions # envs/legged_robot_base
                 obs_dict, rewards, dones, infos = self.env.step(actor_state)
                 # critic_obs = privileged_obs if privileged_obs is not None else obs
                 for obs_key in obs_dict.keys():
@@ -284,7 +295,7 @@ class PPO(BaseAlgo):
             self.start_time = self.stop_time
             
             # prepare data for training
-
+            # 
             returns, advantages = self._compute_returns(
                 last_obs_dict=obs_dict,
                 policy_state_dict=dict(values=self.storage.query_key('values'), 
@@ -347,16 +358,18 @@ class PPO(BaseAlgo):
         advantages = returns - values
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         return returns, advantages
-    
-    def _training_step(self):
+    # 用采集的数据，多epoch多mini-batch更新actor/critic
+    def _training_step(self): # 多 epoch × 多 mini-batch
         loss_dict = self._init_loss_dict_at_training_step()
 
         generator = self.storage.mini_batch_generator(self.num_mini_batches, self.num_learning_epochs)
-
+        # 多epoch重复用数据（防过拟合），
+        # adaptive KL调整lr（e.g., KL>desired_kl→lr/1.5，慢更新防机器人学坏动作）
         for policy_state_dict in generator:
             # Move everything to the device
             for policy_state_key in policy_state_dict.keys():
                 policy_state_dict[policy_state_key] = policy_state_dict[policy_state_key].to(self.device)
+            # 计算 PPO 损失 (clipped surrogate + value + entropy)
             loss_dict = self._update_algo_step(policy_state_dict, loss_dict)
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
@@ -381,7 +394,7 @@ class PPO(BaseAlgo):
     
     def _critic_eval_step(self, obs_dict):
         return self.critic.evaluate(obs_dict["critic_obs"])
-    
+    # 计算 PPO 损失 (clipped surrogate + value + entropy)
     def _update_ppo(self, policy_state_dict, loss_dict):
         actions_batch = policy_state_dict['actions']
         target_values_batch = policy_state_dict['values']
@@ -397,14 +410,14 @@ class PPO(BaseAlgo):
         mu_batch = self.actor.action_mean
         sigma_batch = self.actor.action_std
         entropy_batch = self.actor.entropy
-
-        # KL
+    
+        # KL adaptive KL调整lr（e.g., KL>desired_kl→lr/1.5，慢更新防机器人学坏动作）
         if self.desired_kl != None and self.schedule == 'adaptive':
             with torch.inference_mode():
                 kl = torch.sum(
                     torch.log(sigma_batch / old_sigma_batch + 1.e-5) + (torch.square(old_sigma_batch) + torch.square(old_mu_batch - mu_batch)) / (2.0 * torch.square(sigma_batch)) - 0.5, axis=-1)
                 kl_mean = torch.mean(kl)
-
+                # 课程学习，先易后难
                 if kl_mean > self.desired_kl * 2.0:
                     self.actor_learning_rate = max(1e-5, self.actor_learning_rate / 1.5)
                     self.critic_learning_rate = max(1e-5, self.critic_learning_rate / 1.5)
@@ -446,7 +459,7 @@ class PPO(BaseAlgo):
         actor_loss.backward()
         critic_loss.backward()
 
-        # Gradient step
+        # Gradient step  反向传播 & 梯度裁剪 & 更新参数
         nn.utils.clip_grad_norm_(self.actor.parameters(), self.max_grad_norm)
         nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
 
